@@ -245,7 +245,7 @@
         const pinPopupClose = document.getElementById('pin-popup-close');
 
         // DEFAULT PIN: Silakan ubah angka ini jika ingin PIN lain
-        const SECRET_PIN = "0706";
+        const SECRET_PIN = "271026";
 
         let pinAttempt = 0;
         let popupTimeout = null;
@@ -351,7 +351,7 @@
 
         if (pinInput) {
             pinInput.addEventListener('input', function () {
-                if (pinInput.value.length === 4) {
+                if (pinInput.value.length === SECRET_PIN.length) {
                     // Delay sedikit agar digit terakhir terasa diketik
                     setTimeout(() => {
                         if (pinInput.value === SECRET_PIN) {
@@ -540,22 +540,11 @@ document.addEventListener("DOMContentLoaded", function () {
                 // D. JIKA YANG DIKLIK ADALAH GALERI CINTA (CORE MEMORIES)
                 else {
                     modalImg.src = this.src;
-                    const parentCard = this.closest('.scratch-card');
-                    const isLandscapeRatio = parentCard && parentCard.classList.contains('ratio-3-2');
-
-                    if (isLandscapeRatio) {
-                        modalImg.style.aspectRatio = "3 / 2";
-                        modalImg.style.width = "min(92vw, calc(75vh * 1.5), 650px)";
-                        modalImg.style.height = "auto";
-                        modalImg.style.maxWidth = "92vw";
-                        modalImg.style.maxHeight = "75vh";
-                    } else {
-                        modalImg.style.aspectRatio = "3 / 4";
-                        modalImg.style.width = "min(88vw, calc(75vh * 0.75), 480px)";
-                        modalImg.style.height = "auto";
-                        modalImg.style.maxWidth = "88vw";
-                        modalImg.style.maxHeight = "75vh";
-                    }
+                    modalImg.style.aspectRatio = "9 / 16";
+                    modalImg.style.width = "min(85vw, calc(75vh * 9 / 16), 400px)";
+                    modalImg.style.height = "auto";
+                    modalImg.style.maxWidth = "85vw";
+                    modalImg.style.maxHeight = "75vh";
                     modalImg.style.objectFit = "cover";
                 }
 
@@ -674,25 +663,44 @@ function initVideoMemories() {
     videos.forEach((video, idx) => {
         const videoId = idx + 1;
 
-        // Otomatis mute suara di kedua video saat awal
+        // Otomatis mute suara di kedua video saat awal & izinkan putar bersamaan
         video.muted = true;
+        video.dataset.playMode = 'inline';
         updateMuteButtonUI(videoId, true);
-        updatePlayButtonUI(videoId, false);
+        updatePlayButtonUI(videoId, !video.paused);
+
+        // Sesuaikan rasio aspek frame mengikuti rasio asli file video
+        const syncVideoAspectRatio = () => {
+            if (video.videoWidth && video.videoHeight) {
+                const frame = video.closest('.video-frame-container');
+                if (frame) {
+                    frame.style.aspectRatio = `${video.videoWidth} / ${video.videoHeight}`;
+                }
+                checkOrientation();
+            }
+        };
+        if (video.readyState >= 1) {
+            syncVideoAspectRatio();
+        }
+        video.addEventListener('loadedmetadata', syncVideoAspectRatio);
 
         video.addEventListener('play', function () {
             updatePlayButtonUI(videoId, true);
-            // Jika kedua video diputar melalui tombol "Putar Disini" (mode inline),
-            // izinkan keduanya berputar bersamaan tanpa saling mematikan.
-            // Jika bukan dari "Putar Disini" (misal Putar Layar Penuh), hentikan video lainnya.
-            videos.forEach((otherVideo, otherIdx) => {
-                if (otherVideo !== video && !otherVideo.paused) {
-                    const bothPlayHere = (video.dataset.playMode === 'inline' && otherVideo.dataset.playMode === 'inline');
-                    if (!bothPlayHere) {
+            // Izinkan kedua video berputar bersamaan, kecuali jika salah satu diputar dalam mode layar penuh
+            if (video.dataset.playMode === 'fullscreen') {
+                videos.forEach((otherVideo, otherIdx) => {
+                    if (otherVideo !== video && !otherVideo.paused) {
                         otherVideo.pause();
                         updatePlayButtonUI(otherIdx + 1, false);
                     }
-                }
-            });
+                });
+            }
+        });
+
+        video.addEventListener('fullscreenchange', function () {
+            if (!document.fullscreenElement) {
+                video.dataset.playMode = 'inline';
+            }
         });
 
         video.addEventListener('pause', function () {
@@ -735,13 +743,15 @@ function initVideoMemories() {
                 return;
             }
 
-            if (isMobile && !isLandscape) {
-                // Di HP mode vertikal: tampilkan overlay & pause video yang belum di-unlock
+            const v = videos[idx];
+            const isLandscapeVideo = v && v.videoWidth > 0 && v.videoHeight > 0 && v.videoWidth > v.videoHeight;
+
+            if (isMobile && !isLandscape && isLandscapeVideo) {
+                // Di HP mode vertikal: tampilkan overlay hanya jika videonya berorientasi landscape
                 overlay.style.display = 'flex';
-                const v = videos[idx];
                 if (v && !v.paused) v.pause();
             } else {
-                // Di mode horizontal atau di desktop: sembunyikan overlay
+                // Untuk video portrait, mode horizontal, atau desktop: sembunyikan overlay
                 overlay.style.display = 'none';
             }
         });
@@ -752,6 +762,30 @@ function initVideoMemories() {
         setTimeout(checkOrientation, 250);
     });
     checkOrientation();
+
+    // Putar otomatis kedua video secara bersamaan saat area video terlihat di layar
+    const videoWrapper = document.querySelector('.video-memories-wrapper');
+    const playAllVideos = () => {
+        videos.forEach((v) => {
+            v.dataset.playMode = 'inline';
+            if (v.paused) {
+                v.play().catch(() => { });
+            }
+        });
+    };
+
+    if (videoWrapper && 'IntersectionObserver' in window) {
+        const videoObserver = new IntersectionObserver((entries) => {
+            entries.forEach((entry) => {
+                if (entry.isIntersecting) {
+                    playAllVideos();
+                }
+            });
+        }, { threshold: 0.2 });
+        videoObserver.observe(videoWrapper);
+    } else {
+        playAllVideos();
+    }
 }
 
 // Handler tombol "Putar Disini" (putar langsung tanpa perlu fullscreen/landscape)
@@ -832,7 +866,8 @@ function handleRotateAndPlay(videoId) {
     }
 
     if (screen.orientation && screen.orientation.lock) {
-        screen.orientation.lock('landscape').catch(() => { });
+        const targetOrientation = (video.videoWidth > video.videoHeight) ? 'landscape' : 'portrait';
+        screen.orientation.lock(targetOrientation).catch(() => { });
     }
 
     video.play().catch(() => { });
